@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# factory — ops CLI for the prisma/studio factory host. Plain bash; needs only git, gh, jq.
+#
+#   factory setup    clone the target repo (from FACTORY.md's `repo:` line), verify bot
+#                    access, create the protocol labels idempotently, create worktree dirs
+#   factory doctor   health checks: tools, gh auth, factory clone, cron, locks, target-repo
+#                    access + labels, FACTORY.md sanity
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FACTORY_HOME="${FACTORY_HOME:-$(dirname "$SCRIPT_DIR")}"
+REPOS_DIR="${FACTORY_REPOS:-$HOME/repos}"
+WORKTREES_DIR="${FACTORY_WORKTREES:-$HOME/worktrees}"
+LOGS_DIR="${FACTORY_LOGS:-$HOME/logs}"
+
+FACTORY_MD="$FACTORY_HOME/FACTORY.md"
+REPO_SLUG="$(grep -m1 -E '^repo:' "$FACTORY_MD" 2>/dev/null | awk '{print $2}')"
+REPO_SLUG="${REPO_SLUG:-prisma/studio}"
+REPO_NAME="$(basename "$REPO_SLUG")"
+REPO_DIR="$REPOS_DIR/$REPO_NAME"
+
+# name|color|description — the protocol labels. bot:build and bot:review are the two
+# maintainer-facing opt-ins; the rest are coordination state.
+LABELS='bot:build|0052CC|maintainer opt-in: the factory bot builds this issue
+bot:review|5319E7|maintainer opt-in: the factory bot reviews this PR (comment-only; remove to stop)
+agent:in-progress|1D76DB|an agent holds the lock on this item
+agent:needs-reply|FBCA04|parked on a question — answer in-thread to resume
+needs:human|B60205|true takeover needed; see the handoff comment
+risk:low|0E8A16|merger'\''s honest low-risk call — required before ready:merge
+ready:merge|6F42C1|passed the full review gate — a human clicks merge'
+
+usage() {
+  sed -n 's/^#   factory/  factory/p' "$0"
+  exit 2
+}
+
+ensure_labels() {
+  local existing name color desc
+  existing="$( (cd "$REPO_DIR" && gh label list --limit 100 --json name -q '.[].name') 2>/dev/null || true)"
+  while IFS='|' read -r name color desc; do
+    if grep -qxF "$name" <<<"$existing"; then
+      echo "  label exists: $name"
+    elif (cd "$REPO_DIR" && gh label create "$name" --color "$color" --description "$desc" >/dev/null 2>&1); then
+      echo "  label created: $name"
+    else
+      echo "  WARN could not create label: $name"
+    fi
+  done <<<"$LABELS"
+}
+
+# ---- setup -----------------------------------------------------------------------------
+cmd_setup() {
+  echo "target: $REPO_SLUG"
+  mkdir -p "$REPOS_DIR"
+  if [ -d "$REPO_DIR/.git" ]; then
+    echo "already cloned: $REPO_DIR"
+  else
+    git clone "git@github.com:${REPO_SLUG}.git" "$REPO_DIR" || { echo "FAIL: clone failed" >&2; exit 1; }
+  fi
+  git -C "$REPO_DIR" remote set-head origin --auto >/dev/null 2>&1 || true
+
+  # The bot needs write (collaborator) access to work issues/PRs and push branches.
+  local perm
+  perm="$( (cd "$REPO_DIR" && gh repo view --json viewerPermission -q .viewerPermission) 2>/dev/null || echo UNKNOWN)"
+  case "$perm" in
+    ADMIN|MAINTAIN|WRITE) echo "  bot access: $perm" ;;
+    *) echo "  WARN bot access is '$perm' — needs write; add this account as a collaborator on $REPO_SLUG" ;;
+  esac
+
+  ensure_labels
+
+  mkdir -p "$WORKTREES_DIR/$REPO_NAME/builder" "$WORKTREES_DIR/$REPO_NAME/merger"
+  echo "  dirs ready: $WORKTREES_DIR/$REPO_NAME/{builder,merger}"
+  echo
+  echo "Done. Sweeps pick the repo up within 5 minutes. Label an issue 'bot:build' to feed it."
+}
+
+# ---- doctor ----------------------------------------------------------------------------
+FAILS=0
+ok()   { echo "  ok    $*"; }
+warn() { echo "  warn  $*"; }
+bad()  { echo "  FAIL  $*"; FAILS=$((FAILS + 1)); }
+
+last_cycle() {
+  local log="$LOGS_DIR/$REPO_NAME-$1.log" line
+  [ -f "$log" ] || { echo "—"; return; }
+  line="$(grep 'cycle done' "$log" 2>/dev/null | tail -1)"
+  [ -z "$line" ] && { echo "—"; return; }
+  sed -E 's/^([^ ]+).*rc=([0-9]+).*/\1 rc=\2/' <<<"$line"
+}
+
+cmd_doctor() {
+  echo "tools:"
+  local t
+  for t in git gh jq claude; do
+    command -v "$t" >/dev/null 2>&1 && ok "$t" || bad "$t missing"
+  done
+  for t in flock timeout; do
+    command -v "$t" >/dev/null 2>&1 && ok "$t" \
+      || warn "$t missing — required on the server (absent on stock macOS; brew install flock coreutils)"
+  done
+
+  echo "gh auth:"
+  local login=""
+  if gh auth status >/dev/null 2>&1; then
+    login="$(gh api user -q .login 2>/dev/null || echo '?')"
+    ok "authenticated as $login"
+  else
+    bad "gh auth broken — export GH_TOKEN (incl. in the crontab) or run: gh auth login"
+  fi
+
+  echo "factory clone ($FACTORY_HOME):"
+  if [ -z "$(git -C "$FACTORY_HOME" status --porcelain 2>/dev/null)" ]; then
+    ok "working tree clean"
+  else
+    warn "working tree dirty — the sweep's self-update pull may fail"
+  fi
+  if git -C "$FACTORY_HOME" fetch --quiet origin 2>/dev/null; then
+    local behind
+    behind="$(git -C "$FACTORY_HOME" rev-list --count 'HEAD..@{u}' 2>/dev/null || echo '?')"
+    [ "$behind" = 0 ] && ok "up to date with upstream" || warn "$behind commit(s) behind upstream (next sweep pulls)"
+  else
+    warn "fetch failed — offline, or no upstream configured"
+  fi
+
+  echo "FACTORY.md:"
+  if [ -f "$FACTORY_MD" ]; then
+    ok "present (target: $REPO_SLUG)"
+    # Placeholder scan skips HTML comments — commented examples legitimately contain
+    # <handle>-style tokens; a placeholder OUTSIDE a comment means a slot never got filled.
+    if sed '/<!--/,/-->/d' "$FACTORY_MD" | grep -qE '<[A-Za-z][^<>]*>'; then
+      warn "unfilled <template placeholders> remain, e.g. $(sed '/<!--/,/-->/d' "$FACTORY_MD" | grep -oE -m1 '<[A-Za-z][^<>]*>')"
+    fi
+    local line w
+    line="$(grep -m1 -E '^loops:' "$FACTORY_MD" || true)"
+    if [ -n "$line" ]; then
+      for w in ${line#loops:}; do
+        case "$w" in
+          builder|merger) ;;
+          *) warn "unknown loop \"$w\" in \"$line\" (known: builder merger)" ;;
+        esac
+      done
+    fi
+    grep -q '^## Local gates' "$FACTORY_MD" || warn "no '## Local gates' section — builders won't know the pre-flight commands"
+  else
+    bad "no FACTORY.md at $FACTORY_MD — the sweep refuses to run without it"
+  fi
+
+  echo "cron:"
+  local crontab_out
+  crontab_out="$(crontab -l 2>/dev/null || true)"
+  grep -q "factory-sweep builder" <<<"$crontab_out" && ok "builder sweep line installed" || warn "no builder sweep line in crontab"
+  grep -q "factory-sweep merger" <<<"$crontab_out" && ok "merger sweep line installed" || warn "no merger sweep line in crontab"
+
+  echo "locks:"
+  local lock held_any=""
+  for lock in /tmp/factory-*.lock; do
+    [ -e "$lock" ] || continue
+    if command -v flock >/dev/null 2>&1; then
+      if flock -n "$lock" true 2>/dev/null; then
+        ok "$lock free"
+      else
+        warn "$lock held — a run is live (or hung; the per-run timeout bounds it)"
+      fi
+      held_any=1
+    fi
+  done
+  [ -z "$held_any" ] && ok "no lock files present (or flock unavailable to test them)"
+
+  echo "target repo ($REPO_DIR):"
+  if git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    local perm nlabels
+    perm="$( (cd "$REPO_DIR" && gh repo view --json viewerPermission -q .viewerPermission) 2>/dev/null || echo UNKNOWN)"
+    case "$perm" in
+      ADMIN|MAINTAIN|WRITE) ok "access $perm" ;;
+      *) bad "access '$perm' — bot needs write on $REPO_SLUG" ;;
+    esac
+    nlabels="$( (cd "$REPO_DIR" && gh label list --limit 100 --json name -q \
+      '[.[] | select(.name as $n | ["bot:build","bot:review","agent:in-progress","agent:needs-reply","needs:human","risk:low","ready:merge"] | index($n))] | length') 2>/dev/null || echo '?')"
+    [ "$nlabels" = 7 ] && ok "7/7 protocol labels" || warn "$nlabels/7 protocol labels — run: factory setup"
+    ok "last builder cycle: $(last_cycle builder)"
+    ok "last merger cycle:  $(last_cycle merger)"
+  else
+    warn "no checkout at $REPO_DIR — run: factory setup"
+  fi
+
+  echo
+  if [ "$FAILS" -gt 0 ]; then
+    echo "doctor: $FAILS failure(s)"
+    exit 1
+  fi
+  echo "doctor: healthy"
+}
+
+# ---- dispatch ---------------------------------------------------------------------------
+case "${1:-}" in
+  setup)  cmd_setup ;;
+  doctor) cmd_doctor ;;
+  *)      usage ;;
+esac
