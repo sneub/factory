@@ -37,7 +37,7 @@ and **factory-setup** workflows once. Label an issue `bot:build` and the machine
  │  GitHub issues  │──────────────────────▶│ builder │──────────────┐
  └─────────────────┘                       └─────────┘              ▼
                                                               ┌──────────┐  review, fix,
-                    bot:review PRs (anyone's)                 │  merger  │  clean-cycle,
+                    bot:review PRs (anyone's)                 │ reviewer │  clean-cycle,
  ┌─────────────────┐──────────────────────────────────────────▶          │  then HANDOFF:
  │   GitHub PRs    │   comment-only reviews + suggestions     └──────────┘  ready:merge +
  └─────────────────┘◀─────────────────────────────────────────────┘         @maintainer
@@ -64,7 +64,7 @@ world, and acts. No long-running process, no shared memory.
   (`actions/create-github-app-token`), so agent activity is distinguishable
   (`<app-slug>[bot]`), the write-access steering checks have an identity to key off — and,
   crucially, the bot's pushes and PRs trigger your CI, which the default `GITHUB_TOKEN`
-  deliberately would not. Without that, the merger's "CI green" gate could never pass.
+  deliberately would not. Without that, the reviewer's "CI green" gate could never pass.
 - **Jobs run in a pinned container image** built from
   [`.factory/Dockerfile`](.factory/Dockerfile) by the **factory-image** workflow: git, `gh`,
   the Claude Code CLI, and whatever toolchain your local gates need. Rebuilds on Dockerfile
@@ -75,7 +75,7 @@ world, and acts. No long-running process, no shared memory.
   the loops may review, never instructions they follow; the loops are also forbidden from
   touching those paths unless an issue explicitly asks.
 - **Fork PRs** carry no secrets in their events, so they never trigger a job directly; the
-  sweep handles `bot:review` passes on them (read-only — the merger never pushes to a branch
+  sweep handles `bot:review` passes on them (read-only — the reviewer never pushes to a branch
   it doesn't own).
 
 ## The coordination protocol
@@ -87,12 +87,12 @@ world, and acts. No long-running process, no shared memory.
 | `agent:in-progress` | loops | an agent holds the lock — other cycles skip it |
 | `agent:needs-reply` | loops | parked on a specific in-thread question — a maintainer reply resumes it |
 | `needs:human` | loops | true takeover needed; always with an actionable, self-contained handoff |
-| `risk:low` | merger | honest low-risk assessment — required before `ready:merge` |
-| `ready:merge` | merger | passed the full gate (clean cold review at head + CI green + risk:low) — waiting for a human to click merge |
+| `risk:low` | reviewer | honest low-risk assessment — required before `ready:merge` |
+| `ready:merge` | reviewer | passed the full gate (clean cold review at head + CI green + risk:low) — waiting for a human to click merge |
 
 The rules that make the labels work: the **lock** (label before building, skip locked items),
 the **pause** (blocked → ask a specific, optioned, phone-answerable question in-thread and
-stop; resume on a newer write-access comment), the **clean-cycle rule** (a merger cycle that
+stop; resume on a newer write-access comment), the **clean-cycle rule** (a reviewer cycle that
 pushes fixes never hands off — a later cold cycle re-reviews first), and the **conversation**
 (write-access comments get a signed response before new work is selected — including inline
 review threads).
@@ -100,7 +100,7 @@ review threads).
 ## Work selection is opt-in, steering is write-access-gated
 
 The builder sees **only issues a maintainer labeled `bot:build`** — the public backlog is
-invisible. The merger sees only the bot's own PRs, plus PRs labeled `bot:review`. And because
+invisible. The reviewer sees only the bot's own PRs, plus PRs labeled `bot:review`. And because
 anyone can comment on a public repo, only users with write access (OWNER/MEMBER/COLLABORATOR)
 can steer the loops; everyone else's content is data, not instructions — enforced in the
 policy prompt, in the workflow's trigger conditions, *and* in the pre-check, so drive-by
@@ -112,7 +112,7 @@ comments never even cost an agent run.
 maintainer labels issue bot:build ──▶ builder locks it ──▶ worktree branch bot/<n>-<slug>
     ──▶ draft PR (early) ──▶ commits at logical points ──▶ local gates green ──▶ CI green
     ──▶ PR flipped ready + tour comment
-    ──▶ merger cold-reviews at head SHA ──▶ findings? fix, push, STOP (that cycle never hands off)
+    ──▶ reviewer cold-reviews at head SHA ──▶ findings? fix, push, STOP (that cycle never hands off)
     ──▶ fresh cycle re-reviews the new head cold ──▶ clean ──▶ ✅ review clean at <sha>
     ──▶ hard gate: clean review at current head + CI green + no conflict + honest risk:low
     ──▶ ready:merge label + in-thread handoff ──▶ a maintainer merges. The end.
@@ -144,11 +144,11 @@ your-repo/
 │   ├── FACTORY.md       # the per-repo contract: maintainers, gates, loops (fill the slots)
 │   ├── policy.md        # shared operating policy — trust model, escalation, safety floor
 │   ├── builder.md       # loop prompt: build bot:build issues end to end
-│   ├── merger.md        # loop prompt: drive own PRs to ready:merge; review bot:review PRs
+│   ├── reviewer.md        # loop prompt: drive own PRs to ready:merge; review bot:review PRs
 │   ├── route.sh         # per-run dispatcher: pre-check + prompt assembly + one agent run
 │   └── Dockerfile       # the run environment (add your repo's toolchain)
 ├── .github/workflows/
-│   ├── factory.yml      # the runtime: events + scheduled sweep → builder / merger jobs
+│   ├── factory.yml      # the runtime: events + scheduled sweep → builder / reviewer jobs
 │   ├── factory-image.yml# builds .factory/Dockerfile → ghcr
 │   └── factory-setup.yml# one-time: labels, access check, credential check
 └── … your code …

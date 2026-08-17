@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# .factory/route.sh <builder|merger|setup> — per-run dispatcher for the Actions-hosted factory.
+# .factory/route.sh <builder|reviewer|setup> — per-run dispatcher for the Actions-hosted factory.
 #
 # The factory runs entirely in GitHub Actions: repo events (labels, comments, PR pushes)
 # trigger a run immediately, and a scheduled sweep backstops anything an event missed
@@ -11,7 +11,7 @@
 #   1. cheap pre-check (gh calls, not an agent run): exit 0 when there's provably nothing
 #      to do, so a no-op event or sweep costs seconds. The builder pre-check only ever
 #      looks at issues labeled `bot:build` (the maintainer opt-in — the public backlog is
-#      invisible); the merger pre-check only at the bot's own PRs plus PRs labeled
+#      invisible); the reviewer pre-check only at the bot's own PRs plus PRs labeled
 #      `bot:review`. Freshness checks count only comments from users with write access
 #      (OWNER/MEMBER/COLLABORATOR) — a drive-by comment never wakes an agent;
 #   2. launch ONE fresh agent run: factory policy + loop prompt + generated REPO CONTEXT
@@ -26,8 +26,8 @@ set -uo pipefail
 
 MODE="${1:-}"
 case "$MODE" in
-  builder|merger|setup) ;;
-  *) echo "usage: route.sh <builder|merger|setup>" >&2; exit 2 ;;
+  builder|reviewer|setup) ;;
+  *) echo "usage: route.sh <builder|reviewer|setup>" >&2; exit 2 ;;
 esac
 
 FACTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,7 +39,7 @@ note() { echo "$(ts) route/${MODE}: $*"; }
 
 # The workflow supplies both: GH_TOKEN is a freshly minted App installation token,
 # FACTORY_BOT_LOGIN is "<app-slug>[bot]" — the identity the freshness checks and the
-# merger's own-PR scoping key off.
+# reviewer's own-PR scoping key off.
 : "${GH_TOKEN:?GH_TOKEN (App installation token) must be set}"
 BOT_LOGIN="${FACTORY_BOT_LOGIN:-}"
 [ -z "$BOT_LOGIN" ] && note "WARN FACTORY_BOT_LOGIN unset — pre-checks will fail open"
@@ -57,7 +57,7 @@ bot:review|5319E7|maintainer opt-in: the factory bot reviews this PR (comment-on
 agent:in-progress|1D76DB|an agent holds the lock on this item
 agent:needs-reply|FBCA04|parked on a question — answer in-thread to resume
 needs:human|B60205|true takeover needed; see the handoff comment
-risk:low|0E8A16|merger'\''s honest low-risk call — required before ready:merge
+risk:low|0E8A16|reviewer'\''s honest low-risk call — required before ready:merge
 ready:merge|6F42C1|passed the full review gate — a human clicks merge'
 
 # App-installation access check. Installation tokens only see repos the app is installed
@@ -178,7 +178,7 @@ has_work() {
       done
       return 1
       ;;
-    merger)
+    reviewer)
       [ -z "$BOT_LOGIN" ] && return 0  # can't scope to the bot's PRs — fail open
       # Lane A: the bot's own PRs. Non-draft means the builder finished and flipped it ready.
       json="$(gh pr list --state open --author "$BOT_LOGIN" --limit 100 --json number,isDraft,labels,headRefOid 2>/dev/null)" || return 0
@@ -218,7 +218,7 @@ has_work() {
           -q '[.comments[].body | select(startswith("✅ review clean at"))] | last' 2>/dev/null)" || return 0
         case "$marker" in
           *"$pr_head"*) ;;   # marker covers the current head — still waiting on the human
-          *) return 0 ;;     # head moved (or marker missing) — the merger must re-review
+          *) return 0 ;;     # head moved (or marker missing) — the reviewer must re-review
         esac
       done <<<"$pairs"
       # Nothing actionable — wake only for write-access comments on the bot's PRs or on

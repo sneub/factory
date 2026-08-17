@@ -75,7 +75,7 @@ jobs:
           # Optional model pin (repo variable). Empty means the CLI default.
           ANTHROPIC_MODEL: ${{ vars.FACTORY_MODEL }}
 
-  merger:
+  reviewer:
     # Wake on: a PR labeled bot:review, the bot's PRs changing (ready, new commits),
     # write-access comments on PRs (conversation and inline review threads), the sweep,
     # or a manual kick. Same-repo PR heads only — fork events have no secrets.
@@ -92,7 +92,7 @@ jobs:
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
     concurrency:
-      group: factory-merger
+      group: factory-reviewer
       cancel-in-progress: false
     container:
       image: ghcr.io/${{ github.repository }}/factory:latest
@@ -114,7 +114,7 @@ jobs:
           token: ${{ steps.app.outputs.token }}
 
       - name: Route
-        run: .factory/route.sh merger
+        run: .factory/route.sh reviewer
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           FACTORY_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]

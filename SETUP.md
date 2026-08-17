@@ -17,7 +17,7 @@ If your default branch isn't `main`, adjust the `branches:` line in
 The bot is a GitHub App, separate from your account: agent activity must be distinguishable,
 the write-access steering checks key off the `<slug>[bot]` login, and — the load-bearing
 part — **App-minted tokens trigger CI on the bot's PRs**, which the default `GITHUB_TOKEN`
-deliberately does not. Without this, the merger's "CI green" gate could never pass.
+deliberately does not. Without this, the reviewer's "CI green" gate could never pass.
 
 Create it once (**Settings → Developer settings → GitHub Apps → New**): permissions
 Contents, Pull requests, Issues — all read & write; webhook off. Then **install it on the
@@ -68,8 +68,8 @@ The labels it creates:
 | `agent:in-progress` | loops | an agent holds the lock on this item |
 | `agent:needs-reply` | loops | parked on a question — answer in-thread to resume |
 | `needs:human` | loops | true takeover needed; comes with an actionable handoff |
-| `risk:low` | merger | honest low-risk call — required before `ready:merge` |
-| `ready:merge` | merger | passed the full review gate — a human clicks merge |
+| `risk:low` | reviewer | honest low-risk call — required before `ready:merge` |
+| `ready:merge` | reviewer | passed the full review gate — a human clicks merge |
 
 Also worth having (almost certainly already true): **branch protection on the default
 branch** — required CI checks, no force-pushes. Human review requirements are fine to keep;
@@ -83,7 +83,7 @@ only maintainers direct it. People *will* see its PRs and ask.
 
 Only write-access users (GitHub author association OWNER/MEMBER/COLLABORATOR) can steer the
 loops — everyone else's issues, comments, and PRs are data the maintainers may act on, never
-instructions the bot acts on. The builder sees only `bot:build` issues; the merger sees only
+instructions the bot acts on. The builder sees only `bot:build` issues; the reviewer sees only
 the bot's own PRs and `bot:review` PRs. The workflow's trigger conditions and the dispatcher's
 pre-check apply the same gate, so drive-by comments don't even cost an agent run. And every
 job reads its prompts from the **default branch**, so the factory's instructions change only
@@ -95,13 +95,13 @@ when a human merges a change to them.
    with a test") and label it `bot:build`.
 2. Within a minute (or a sweep cycle): the builder labels it `agent:in-progress`, a
    `bot/<n>-…` branch and draft PR appear, then it flips ready with a tour comment.
-3. The merger cold-reviews it over the next cycles, fixes anything it finds, and — from a
+3. The reviewer cold-reviews it over the next cycles, fixes anything it finds, and — from a
    clean cycle — labels it `ready:merge` with a handoff comment tagging the maintainer. It
    stops there: **the merge click is yours.**
 4. File a deliberately ambiguous issue, label it `bot:build`, and confirm the builder
    **asks** (an optioned, phone-answerable question + `agent:needs-reply`) instead of
    guessing — then answer in-thread and watch it resume.
-5. Label one open PR `bot:review` and confirm the merger posts a single COMMENT review with
+5. Label one open PR `bot:review` and confirm the reviewer posts a single COMMENT review with
    inline suggestions and a `🔍 reviewed <sha>` marker, and pushes nothing.
 6. Optionally: comment on a bot PR from an account with no write access and confirm nothing
    wakes up.

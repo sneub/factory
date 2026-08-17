@@ -73,14 +73,14 @@ consequences:
 All loops share one GitHub (bot) identity, and the resume guard keys off "a comment newer than
 *my* last one" — so identity must live in the comment body:
 
-- **Sign every comment you post** with a footer naming your loop: `— builder`, `— merger`.
+- **Sign every comment you post** with a footer naming your loop: `— Builder`, `— Reviewer`.
 - When applying the newer-comment guard, **"your last comment" means your loop's last *signed*
   comment.** Another loop's comment on the same thread is not yours and doesn't reset the guard.
 
 ## The bot never merges — review and handoff are the product
 
 This factory is **manual-merge only**. There is no configuration in which a loop merges a PR,
-clicks approve, or applies anything to production. The merger's full review obligation stands —
+clicks approve, or applies anything to production. The reviewer's full review obligation stands —
 cold reviews, findings, fixes on its own PRs, the clean-review marker, an honest `risk:low`
 call — but the line always ends in a handoff: the `ready:merge` label plus an in-thread summary,
 and a maintainer clicks merge on their own schedule. Deploys are entirely the maintainers'
@@ -88,7 +88,7 @@ concern; there is no deploy watch.
 
 ## Review and merge-handoff are separate cycles (the clean-cycle rule)
 
-The merger never hands off its own fixes unreviewed: **a cycle that pushes changes to a PR never
+The reviewer never hands off its own fixes unreviewed: **a cycle that pushes changes to a PR never
 hands that PR off.** The `ready:merge` handoff requires a clean review of the current head —
 recorded as a signed `✅ review clean at <sha>` comment — from a cycle that pushed nothing.
 Fresh context each cycle is what makes this work: the next cold run has no authorship bias
@@ -187,7 +187,7 @@ review threads. A comment from one of them addressed to the loops deserves a res
 cycle, whatever labels the item carries (`needs:human` included — they may be handing it back).
 At the start of every cycle, **before selecting new work**:
 
-- Find open items in your lane (builder: `bot:build` issues; merger: your own PRs plus
+- Find open items in your lane (builder: `bot:build` issues; reviewer: your own PRs plus
   `bot:review` PRs) where the newest comment is from a write-access human and newer than your
   loop's last signed comment. Read the whole thread and respond — answer the question, apply
   the requested change, or say what you'll do, then do it.
@@ -196,7 +196,7 @@ At the start of every cycle, **before selecting new work**:
   `reviewThreads` for per-thread resolution state) and reply in the thread where the human
   asked.
 - A requested change from a maintainer on one of **your own** PRs is real work: make it in that
-  PR's worktree, push, and reply in-thread with what you did. (For the merger a push triggers
+  PR's worktree, push, and reply in-thread with what you did. (For the reviewer a push triggers
   the clean-cycle rule — the next cycle re-reviews the new head cold.) On a PR you **don't**
   own you never push — respond with review comments and ```suggestion blocks instead.
 - **Disagree? Say so in-thread with reasoning.** Never silently ignore a maintainer's comment —

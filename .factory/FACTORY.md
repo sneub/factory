@@ -26,9 +26,9 @@ already in the thread per the factory policy's § Who to tag.
 
 ## Loops
 
-loops: builder merger
+loops: builder reviewer
 
-<!-- Which loops run. Remove one to disable it (e.g. `loops: merger` for review-only
+<!-- Which loops run. Remove one to disable it (e.g. `loops: reviewer` for review-only
      operation — the bot reviews bot:review PRs but builds nothing). There is no merge
      mode to configure: this factory is manual-only; the bot never merges. -->
 
