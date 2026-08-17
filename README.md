@@ -7,9 +7,9 @@ and review PRs, while a maintainer steers the whole thing asynchronously from Gi
 usually from a phone. **The bot never merges anything**: every line of its work ends in a
 review handoff, a suggestion, or a question.
 
-A descendant of the [simple software factory](https://github.com/sneub/factory), rebuilt
-around Actions: GitHub receives the triggering events natively, so there is no webhook
-receiver, no cron host, no bootstrap script, and no box to keep patched.
+GitHub receives the triggering events natively, so there is no webhook receiver, no cron
+host, and no box to keep patched. (Based on the
+[simple software factory](https://github.com/sneub/factory).)
 
 ## Add a factory to a repo
 

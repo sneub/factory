@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # .factory/route.sh <builder|merger|setup> — per-run dispatcher for the Actions-hosted factory.
 #
-# GitHub Actions replaces the old server: repo events (labels, comments, PR pushes) trigger
-# a run immediately, and a scheduled sweep backstops anything an event missed (dropped
-# concurrency slots, CI turning green, fork PRs). Every run is a fresh VM with a checkout
-# of the DEFAULT BRANCH — this script and the prompt files are therefore always the
-# human-merged versions, never a PR's copy.
+# The factory runs entirely in GitHub Actions: repo events (labels, comments, PR pushes)
+# trigger a run immediately, and a scheduled sweep backstops anything an event missed
+# (dropped concurrency slots, CI turning green, fork PRs). Every run is a fresh VM with a
+# checkout of the DEFAULT BRANCH — this script and the prompt files are therefore always
+# the human-merged versions, never a PR's copy.
 #
 # Each run, in order:
 #   1. cheap pre-check (gh calls, not an agent run): exit 0 when there's provably nothing
