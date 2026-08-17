@@ -70,6 +70,8 @@ builder finished — that's the handoff signal. For each such PR not labeled `ne
   - **tests are part of done** — a change without meaningful tests isn't handoff-ready;
   - **the repo's own conventions** — style, structure, and patterns per its contributor docs;
     a PR that fights the codebase's grain is a finding;
+  - **docs drift** — the PR changes behavior the repo's own docs describe (README, API
+    docs, usage guides) without updating them in the same PR;
   - **assumption hygiene** — assumptions the PR relies on are stated in the PR body;
   - **no secrets** in code, config, or logs (assume every comment is public);
   - **no out-of-scope `.factory/` or `.github/` changes** — the factory's own files are off
@@ -87,8 +89,8 @@ builder finished — that's the handoff signal. For each such PR not labeled `ne
   unhealthy. Ask in-thread (`agent:needs-reply`) whether to keep fixing or kick it back.
 - **HARD GATE before handoff — all must hold:**
   - **(a)** ALL required CI checks are green at the CURRENT head SHA. If pending, leave the
-    PR and stop — the next cycle (an event or the sweep) revisits once they've settled.
-    Never hand off on stale or partial checks.
+    PR and stop — CI completing on this head wakes your next cycle. Never hand off on stale
+    or partial checks.
   - **(b)** No merge conflict against the default branch.
   - **(c)** A `✅ review clean at <sha> — Reviewer` comment exists for the CURRENT head SHA, and
     **you pushed nothing to this PR this cycle.** Any push changes the SHA and voids the
@@ -99,7 +101,9 @@ builder finished — that's the handoff signal. For each such PR not labeled `ne
   - **(e)** If the diff contains a **destructive (data-loss) operation** that was never
     explicitly approved in-thread by a maintainer: **ask** (`agent:needs-reply`) with
     specifics — which op, exactly what data it drops, the recovery path — and stop.
-- When (a)–(e) hold: label the PR `ready:merge` and post the handoff comment:
+- When (a)–(e) hold: re-fetch and confirm the head SHA is unchanged since your review
+  began — if it moved, restart from the top on the new head. Then label the PR
+  `ready:merge` and post the handoff comment:
   `✅ ready to merge — review clean at <sha>, CI green, risk:low. Over to you @<handle>.
 — Reviewer` (route the tag per policy § Who to tag — usually the maintainer). If
   the PR carries a hazardous operation, name it in the handoff — operation, class, and

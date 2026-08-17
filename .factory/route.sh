@@ -10,8 +10,9 @@
 # Each run, in order:
 #   1. cheap pre-check (gh calls, not an agent run): exit 0 when there's provably nothing
 #      to do, so a no-op event or sweep costs seconds. The builder pre-check only ever
-#      looks at issues labeled `bot:build` (the maintainer opt-in — the public backlog is
-#      invisible); the reviewer pre-check only at the bot's own PRs plus PRs labeled
+#      looks at issues labeled `bot:build` (build) or `bot:idea` (shape) — the maintainer
+#      opt-ins; the public backlog is invisible. The reviewer pre-check only at the bot's
+#      own PRs plus PRs labeled
 #      `bot:review`. Freshness checks count only comments from users with write access
 #      (OWNER/MEMBER/COLLABORATOR) — a drive-by comment never wakes an agent;
 #   2. launch ONE fresh agent run: factory policy + loop prompt + generated REPO CONTEXT
@@ -50,9 +51,10 @@ FACTORY_MD="$FACTORY_DIR/FACTORY.md"
 ALLOWED_TOOLS="Bash,Edit,Write,Read,Glob,Grep"
 DRY_RUN="${FACTORY_DRY_RUN:-}"
 
-# name|color|description — the protocol labels. bot:build and bot:review are the two
-# maintainer-facing opt-ins; the rest are coordination state.
+# name|color|description — the protocol labels. bot:build, bot:idea, and bot:review are
+# the three maintainer-facing opt-ins; the rest are coordination state.
 LABELS='bot:build|0052CC|maintainer opt-in: the factory bot builds this issue
+bot:idea|006B75|intake: the bot shapes this into a build order in-thread; promote by swapping to bot:build
 bot:review|5319E7|maintainer opt-in: the factory bot reviews this PR (comment-only; remove to stop)
 agent:in-progress|1D76DB|an agent holds the lock on this item
 agent:needs-reply|FBCA04|parked on a question — answer in-thread to resume
@@ -159,7 +161,7 @@ has_work() {
   local json actionable parked n
   case "$MODE" in
     builder)
-      # Only issues a maintainer has explicitly labeled bot:build exist for the builder.
+      # Lane 1: the build queue — issues a maintainer explicitly labeled bot:build.
       json="$(gh issue list --state open --label 'bot:build' --limit 100 --json number,labels 2>/dev/null)" || return 0
       actionable="$(jq '[ .[]
           | (.labels | map(.name)) as $l
@@ -171,11 +173,25 @@ has_work() {
       # Parked, locked, or needs:human bot:build issues wake only on a newer comment from a
       # write-access human — that's the maintainer's reply or steering.
       parked="$(jq -r '.[].number' <<<"$json" 2>/dev/null)" || return 0
-      [ -z "$parked" ] && return 1
-      [ -z "$BOT_LOGIN" ] && return 0  # can't judge freshness — fail open
-      for n in $parked; do
+      if [ -n "$parked" ]; then
+        [ -z "$BOT_LOGIN" ] && return 0  # can't judge freshness — fail open
+        for n in $parked; do
+          steering_comment_waiting issue "$n" && return 0
+        done
+      fi
+      # Lane 2: bot:idea intake. A human-filed idea with no comments needs its first
+      # shaping pass; everything else in the lane — shaped ideas awaiting feedback, the
+      # bot's own proposals — wakes only when a write-access human spoke last.
+      local ijson iauthor ncomments
+      ijson="$(gh issue list --state open --label 'bot:idea' --limit 100 --json number,author 2>/dev/null)" || return 0
+      while read -r n iauthor; do
+        [ -z "$n" ] && continue
         steering_comment_waiting issue "$n" && return 0
-      done
+        if [ "$iauthor" != "$BOT_LOGIN" ]; then
+          ncomments="$(gh issue view "$n" --json comments -q '.comments | length' 2>/dev/null)" || return 0
+          [ "${ncomments:-1}" -eq 0 ] && return 0
+        fi
+      done <<<"$(jq -r '.[] | "\(.number) \(.author.login)"' <<<"$ijson" 2>/dev/null)"
       return 1
       ;;
     reviewer)

@@ -1,5 +1,5 @@
 # One-time onboarding + health check, run by hand from the Actions tab. Verifies the App
-# credentials mint a token, checks the app has write access here, creates the 7 protocol
+# credentials mint a token, checks the app has write access here, creates the 8 protocol
 # labels idempotently, and confirms a Claude credential is present. Safe to re-run.
 name: factory-setup
 

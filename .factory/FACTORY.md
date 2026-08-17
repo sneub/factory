@@ -32,6 +32,15 @@ loops: builder reviewer
      operation — the bot reviews bot:review PRs but builds nothing). There is no merge
      mode to configure: this factory is manual-only; the bot never merges. -->
 
+## Proposals
+
+proposals: on
+
+<!-- May the loops file `bot:idea` issues of their own (tech debt they keep hitting,
+     follow-ups a PR surfaced)? Proposals arrive already in build-order form and are NEVER
+     promoted by the bot — only a maintainer applies bot:build. Set `proposals: off` to
+     disable; note that on a public repo, bot-filed issues are visible to everyone. -->
+
 ## Local gates
 
 The command chain that must be green before any PR flips ready:

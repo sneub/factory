@@ -17,6 +17,8 @@ on:
     types: [labeled, ready_for_review, synchronize]
   pull_request_review_comment:
     types: [created]
+  check_suite:
+    types: [completed] # CI settling on a PR head — the moment the reviewer's gate becomes decidable
   schedule:
     - cron: "*/15 * * * *" # the backstop sweep; events do the fast path
   workflow_dispatch:
@@ -30,12 +32,14 @@ permissions:
 
 jobs:
   builder:
-    # Wake on: a maintainer labeling an issue bot:build, a write-access comment on an
-    # issue (a reply to a parked question, or steering), the sweep, or a manual kick.
-    # route.sh re-checks everything cheaply and exits fast when there's nothing to do.
+    # Wake on: a maintainer labeling an issue bot:build (build) or bot:idea (shape), a
+    # write-access comment on an issue (a reply to a parked question, or steering), the
+    # sweep, or a manual kick. route.sh re-checks everything cheaply and exits fast when
+    # there's nothing to do.
     if: >
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issues' && github.event.label.name == 'bot:build') ||
+      (github.event_name == 'issues' &&
+        (github.event.label.name == 'bot:build' || github.event.label.name == 'bot:idea')) ||
       (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
@@ -76,16 +80,23 @@ jobs:
           ANTHROPIC_MODEL: ${{ vars.FACTORY_MODEL }}
 
   reviewer:
-    # Wake on: a PR labeled bot:review, the bot's PRs changing (ready, new commits),
-    # write-access comments on PRs (conversation and inline review threads), the sweep,
-    # or a manual kick. Same-repo PR heads only — fork events have no secrets.
+    # Wake on: a PR labeled bot:review, the bot's PRs flipping ready, new commits on a
+    # watched bot:review PR, CI settling on a PR head (the moment the hard gate becomes
+    # decidable), write-access comments on PRs (conversation and inline review threads),
+    # the sweep, or a manual kick. Deliberately NOT the bot's own fix-pushes: the cold
+    # re-review after a fix waits for CI to complete on the new head, which keeps the
+    # clean-cycle rule's independence temporal as well as contextual. Same-repo PR heads
+    # only — fork events have no secrets.
     if: >
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository &&
-        (github.event.label.name == 'bot:review' ||
-         contains(github.event.pull_request.labels.*.name, 'bot:review') ||
-         endsWith(github.event.pull_request.user.login, '[bot]'))) ||
+        ((github.event.action == 'labeled' && github.event.label.name == 'bot:review') ||
+         (github.event.action == 'ready_for_review' && endsWith(github.event.pull_request.user.login, '[bot]')) ||
+         (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'bot:review')))) ||
+      (github.event_name == 'check_suite' &&
+        github.event.check_suite.pull_requests[0] &&
+        github.event.check_suite.head_branch != github.event.repository.default_branch) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'pull_request_review_comment' &&

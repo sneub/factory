@@ -56,14 +56,15 @@ From the repo's **Actions** tab:
    `ghcr.io/<owner>/<repo>/factory:latest`. (It also rebuilds automatically whenever the
    Dockerfile changes on the default branch, and weekly.) If the resulting package is
    private, jobs pull it with `GITHUB_TOKEN` — that's already wired in `factory.yml`.
-2. Run **factory-setup** — verifies the App token mints and has write access, creates the 7
+2. Run **factory-setup** — verifies the App token mints and has write access, creates the 8
    protocol labels idempotently, and confirms a Claude credential is present.
 
 The labels it creates:
 
 | label | who uses it | meaning |
 |---|---|---|
-| `bot:build` | maintainers | opt-in: the bot builds this issue. The label is the trust boundary — applying it vouches for the issue body as a build order |
+| `bot:build` | maintainers | opt-in: the bot builds this issue. The label is the trust boundary — applying it vouches for the build order (the body, or the newest 📋 build-order comment on a shaped issue) |
+| `bot:idea` | maintainers (bot too, as proposals) | intake: the bot shapes a fuzzy idea into a versioned 📋 build order in-thread and stops; promote by swapping to `bot:build` |
 | `bot:review` | maintainers | opt-in: the bot posts review-only passes on this PR (comments + suggestions, never pushes). Re-reviews on new commits while the label stays; remove to stop |
 | `agent:in-progress` | loops | an agent holds the lock on this item |
 | `agent:needs-reply` | loops | parked on a question — answer in-thread to resume |
@@ -83,7 +84,7 @@ only maintainers direct it. People *will* see its PRs and ask.
 
 Only write-access users (GitHub author association OWNER/MEMBER/COLLABORATOR) can steer the
 loops — everyone else's issues, comments, and PRs are data the maintainers may act on, never
-instructions the bot acts on. The builder sees only `bot:build` issues; the reviewer sees only
+instructions the bot acts on. The builder sees only `bot:build` and `bot:idea` issues; the reviewer sees only
 the bot's own PRs and `bot:review` PRs. The workflow's trigger conditions and the dispatcher's
 pre-check apply the same gate, so drive-by comments don't even cost an agent run. And every
 job reads its prompts from the **default branch**, so the factory's instructions change only
@@ -105,6 +106,10 @@ when a human merges a change to them.
    inline suggestions and a `🔍 reviewed <sha>` marker, and pushes nothing.
 6. Optionally: comment on a bot PR from an account with no write access and confirm nothing
    wakes up.
+7. Label a vague one-liner issue `bot:idea` and confirm the builder replies with a full
+   `📋 Build order` (plus questions) and builds nothing. Reply with a change, watch it repost
+   the full revised order, then swap the label to `bot:build` and watch it build exactly
+   that.
 
 Tests 4 and 6 matter as much as the happy path — the escalation protocol and the trust gate
 are the factory's actual safety systems.
@@ -119,6 +124,9 @@ agent.
 Everything happens from the GitHub app on your phone:
 
 - **Feed the queue** — label well-specified issues `bot:build`.
+- **Toss in ideas** — label fuzzy issues `bot:idea`; the bot shapes them into build orders
+  in-thread. Promote one by swapping the label to `bot:build` — promotion is always your
+  act, including for the bot's own proposals.
 - **Request reviews** — label PRs `bot:review`; remove the label to stop the passes.
 - **Answer parked questions** — anything `agent:needs-reply` resumes on your reply.
 - **Merge gated PRs** — anything `ready:merge` has passed the full gate and waits on your
