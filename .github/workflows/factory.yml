@@ -31,17 +31,56 @@ permissions:
   packages: read
 
 jobs:
+  preflight:
+    # Secrets aren't visible to job-level `if` expressions, so this small job decides
+    # whether the factory is actually configured: App credentials, a Claude credential,
+    # and the container image in ghcr. Until setup completes (SETUP.md) — e.g. right
+    # after copying these files into a repo — every run skips green here instead of
+    # failing red at the image pull.
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          APP_ID: ${{ secrets.FACTORY_APP_ID }}
+          APP_KEY: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ghcr.io/${{ github.repository }}/factory:latest
+        run: |
+          ready=true
+          if [ -z "$APP_ID" ] || [ -z "$APP_KEY" ]; then
+            echo "::warning::factory is not configured: FACTORY_APP_ID / FACTORY_APP_PRIVATE_KEY secrets are missing (see SETUP.md) — skipping"
+            ready=false
+          fi
+          if [ -z "$API_KEY" ] && [ -z "$OAUTH" ]; then
+            echo "::warning::factory is not configured: set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (see SETUP.md) — skipping"
+            ready=false
+          fi
+          if [ "$ready" = true ]; then
+            echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null 2>&1
+            if ! docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+              echo "::warning::$IMAGE does not exist — run the factory-image workflow once to build it — skipping"
+              ready=false
+            fi
+          fi
+          echo "ready=$ready" >>"$GITHUB_OUTPUT"
+
   builder:
     # Wake on: a maintainer labeling an issue bot:build (build) or bot:idea (shape), a
     # write-access comment on an issue (a reply to a parked question, or steering), the
     # sweep, or a manual kick. route.sh re-checks everything cheaply and exits fast when
     # there's nothing to do.
+    needs: preflight
     if: >
+      needs.preflight.outputs.ready == 'true' && (
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issues' &&
         (github.event.label.name == 'bot:build' || github.event.label.name == 'bot:idea')) ||
       (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
-        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
     runs-on: ubuntu-latest
     concurrency:
       group: factory-builder
@@ -87,7 +126,9 @@ jobs:
     # re-review after a fix waits for CI to complete on the new head, which keeps the
     # clean-cycle rule's independence temporal as well as contextual. Same-repo PR heads
     # only — fork events have no secrets.
+    needs: preflight
     if: >
+      needs.preflight.outputs.ready == 'true' && (
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository &&
@@ -100,7 +141,7 @@ jobs:
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'pull_request_review_comment' &&
-        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
     runs-on: ubuntu-latest
     concurrency:
       group: factory-reviewer

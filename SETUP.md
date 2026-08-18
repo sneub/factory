@@ -9,6 +9,10 @@ Copy `.factory/` and the three `.github/workflows/factory*.yml` workflows into t
 repo, on its default branch. Fill the `<placeholders>` in `.factory/FACTORY.md` (maintainer
 handle, local gates) — the setup workflow will warn about any you miss.
 
+Copying the files first is safe: until the secrets and image from the next steps exist,
+every factory run skips green at its preflight check (with a warning annotation saying
+what's missing) rather than failing red.
+
 If your default branch isn't `main`, adjust the `branches:` line in
 `.github/workflows/factory-image.yml`.
 
